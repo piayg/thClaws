@@ -13,7 +13,8 @@ use crate::memory::MemoryStore;
 use crate::permissions::{PermissionMode, ReplApprover};
 use crate::providers::{
     anthropic::AnthropicProvider, gemini::GeminiProvider, ollama::OllamaProvider,
-    ollama_cloud::OllamaCloudProvider, openai::OpenAIProvider, Provider, ProviderKind,
+    ollama_cloud::OllamaCloudProvider, openai::OpenAIProvider, opencode_go::OpencodeGoProvider,
+    Provider, ProviderKind,
 };
 use crate::session::{Session, SessionStore};
 use crate::subagent::{ProductionAgentFactory, SubAgentTool};
@@ -3353,6 +3354,20 @@ pub fn build_provider(config: &AppConfig) -> Result<Arc<dyn Provider>> {
                     .with_strip_model_prefix("nvidia/"),
             ))
         }
+        ProviderKind::OpenCodeGo => {
+            // OpenCodeGo (opencode.ai) — multi-format hosted gateway.
+            // Routes to the correct endpoint based on model id:
+            // OpenAI-compatible (/chat/completions), Anthropic-compatible
+            // (/messages), or Alibaba-compatible (/chat/completions).
+            // Models use the `opencode-go/<id>` prefix. The base URL can
+            // be overridden via OPENCODE_GO_BASE_URL for self-hosted proxies.
+            let base = std::env::var("OPENCODE_GO_BASE_URL")
+                .unwrap_or_else(|_| "https://opencode.ai/zen/go/v1".to_string());
+            Ok(Arc::new(
+                OpencodeGoProvider::new(api_key).with_base_url(base),
+            ))
+        }
+
         ProviderKind::Ollama
         | ProviderKind::OllamaAnthropic
         | ProviderKind::LMStudio
@@ -3418,6 +3433,7 @@ pub async fn build_provider_with_fallback(
         ProviderKind::QwenCloud,
         ProviderKind::ZAi,
         ProviderKind::ThaiLLM,
+        ProviderKind::OpenCodeGo,
         ProviderKind::Ollama,
         ProviderKind::OllamaAnthropic,
         ProviderKind::OllamaCloud,
