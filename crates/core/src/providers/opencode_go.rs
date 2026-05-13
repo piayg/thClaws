@@ -84,12 +84,6 @@ impl OpencodeGoProvider {
         self
     }
 
-    fn auth_header_name(&self) -> &str { "authorization" }
-
-    fn auth_header_value(&self) -> String {
-        format!("Bearer {}", self.api_key)
-    }
-
     fn messages_to_openai(req: &StreamRequest) -> Vec<Value> {
         let mut out: Vec<Value> = Vec::new();
         let echo_reasoning = model_uses_reasoning_content(&req.model);
@@ -237,11 +231,17 @@ impl OpencodeGoProvider {
         body
     }
 
-    async fn send_request(&self, url: &str, body: &Value) -> Result<reqwest::Response> {
-        self.client.post(url)
-            .header(self.auth_header_name(), self.auth_header_value())
-            .header("content-type", "application/json")
-            .json(body)
+    async fn send_request(&self, url: &str, body: &Value, wire_format: WireFormat) -> Result<reqwest::Response> {
+        let req = self.client.post(url)
+            .header("content-type", "application/json");
+        let req = match wire_format {
+            WireFormat::Anthropic => req
+                .header("x-api-key", &self.api_key)
+                .header("anthropic-version", "2023-06-01"),
+            _ => req
+                .header("authorization", format!("Bearer {}", self.api_key)),
+        };
+        req.json(body)
             .send().await.map_err(|e| Error::Provider(format!("http: {e}")))
     }
 
@@ -408,7 +408,7 @@ impl Provider for OpencodeGoProvider {
     async fn list_models(&self) -> Result<Vec<ModelInfo>> {
         let models_url = self.models_list_url();
         let resp = self.client.get(&models_url)
-            .header(self.auth_header_name(), self.auth_header_value())
+            .header("authorization", format!("Bearer {}", self.api_key))
             .send().await.map_err(|e| Error::Provider(format!("http: {e}")))?;
         if !resp.status().is_success() {
             let status = resp.status();
@@ -439,7 +439,7 @@ impl Provider for OpencodeGoProvider {
             WireFormat::Anthropic => Self::build_anthropic_body(&req),
         };
 
-        let resp = self.send_request(&endpoint, &body).await?;
+        let resp = self.send_request(&endpoint, &body, wire_format).await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
@@ -534,6 +534,7 @@ fn extract_images(content: &ToolResultContent) -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Message;
 
     #[test]
     fn test_detect_wire_format_openai() {
@@ -604,5 +605,57 @@ data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text
     fn test_provider_custom_url() {
         let provider = OpencodeGoProvider::new("test-key").with_base_url("https://custom.example.com");
         assert_eq!(provider.base_url, "https://custom.example.com");
+    }
+
+    /// Integration test: streams from minimax-m2.7 (Anthropic wire format with x-api-key).
+    /// Requires OPENCODE_GO_API_KEY env var.
+    #[tokio::test]
+    #[ignore = "requires OPENCODE_GO_API_KEY"]
+    async fn it_streams_minimax_m2_7() {
+        let key = std::env::var("OPENCODE_GO_API_KEY").expect("OPENCODE_GO_API_KEY must be set");
+        let provider = OpencodeGoProvider::new(key);
+        let req = StreamRequest {
+            model: "opencode-go/minimax-m2.7".into(),
+            system: None,
+            messages: vec![Message::user("Say hello in one word")],
+            tools: vec![],
+            max_tokens: 30,
+            thinking_budget: None,
+            stream_chunk_timeout_override: Some(std::time::Duration::from_secs(10)),
+        };
+        let stream = provider.stream(req).await.unwrap();
+        let mut count = 0;
+        tokio::pin!(stream);
+        while let Some(event) = stream.next().await {
+            let _ = event.unwrap();
+            count += 1;
+        }
+        assert!(count > 0, "expected at least one event");
+    }
+
+    /// Integration test: streams from qwen3.6-plus (Alibaba wire format).
+    /// Requires OPENCODE_GO_API_KEY env var.
+    #[tokio::test]
+    #[ignore = "requires OPENCODE_GO_API_KEY"]
+    async fn it_streams_qwen3_6_plus() {
+        let key = std::env::var("OPENCODE_GO_API_KEY").expect("OPENCODE_GO_API_KEY must be set");
+        let provider = OpencodeGoProvider::new(key);
+        let req = StreamRequest {
+            model: "opencode-go/qwen3.6-plus".into(),
+            system: None,
+            messages: vec![Message::user("Say hello in one word")],
+            tools: vec![],
+            max_tokens: 30,
+            thinking_budget: None,
+            stream_chunk_timeout_override: Some(std::time::Duration::from_secs(10)),
+        };
+        let stream = provider.stream(req).await.unwrap();
+        let mut count = 0;
+        tokio::pin!(stream);
+        while let Some(event) = stream.next().await {
+            let _ = event.unwrap();
+            count += 1;
+        }
+        assert!(count > 0, "expected at least one event");
     }
 }
