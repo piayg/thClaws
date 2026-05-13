@@ -950,6 +950,27 @@ pub async fn build_all_models_payload() -> String {
             _ => Vec::new(),
         }
     };
+    let opencodego_live: Vec<String> = {
+        let key = std::env::var("OPENCODE_GO_API_KEY").ok();
+        match key {
+            Some(k) => {
+                let base = std::env::var("OPENCODE_GO_BASE_URL")
+                    .unwrap_or_else(|_| crate::providers::opencode_go::DEFAULT_API_URL.to_string());
+                let provider = crate::providers::opencode_go::OpencodeGoProvider::new(k)
+                    .with_base_url(base);
+                match tokio::time::timeout(
+                    std::time::Duration::from_millis(1500),
+                    provider.list_models(),
+                )
+                .await
+                {
+                    Ok(Ok(models)) => models.into_iter().map(|m| m.id).collect(),
+                    _ => Vec::new(),
+                }
+            }
+            None => Vec::new(),
+        }
+    };
     let mut groups: Vec<serde_json::Value> = Vec::new();
     for kind in ProviderKind::ALL {
         let name = kind.name();
@@ -972,6 +993,11 @@ pub async fn build_all_models_payload() -> String {
         }
         if matches!(kind, ProviderKind::Ollama) {
             for id in &ollama_live {
+                model_ids.entry(id.clone()).or_insert(None);
+            }
+        }
+        if matches!(kind, ProviderKind::OpenCodeGo) {
+            for id in &opencodego_live {
                 model_ids.entry(id.clone()).or_insert(None);
             }
         }

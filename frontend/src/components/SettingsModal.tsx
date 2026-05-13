@@ -48,6 +48,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   ollama: "Ollama",
   "ollama-anthropic": "Ollama (Anthropic-compatible)",
   "ollama-cloud": "Ollama Cloud",
+  "opencode-go": "OpenCode Go",
   azure: "Azure AI Foundry",
   "openai-compat": "OpenAI-Compatible (custom endpoint)",
   tavily: "Tavily Search",
