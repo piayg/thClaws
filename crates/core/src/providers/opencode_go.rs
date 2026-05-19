@@ -649,24 +649,28 @@ impl OpencodeGoProvider {
                         events.push(ProviderEvent::ContentBlockStop);
                         state.active_tool_index = None;
                     }
-                    let usage = v.get("usage").map(|u| Usage {
-                        input_tokens: u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0)
-                            as u32,
-                        output_tokens: u
-                            .get("completion_tokens")
+                    let usage = v.get("usage").map(|u| {
+                        let cached = u
+                            .pointer("/prompt_tokens_details/cached_tokens")
                             .and_then(Value::as_u64)
-                            .unwrap_or(0) as u32,
-                        cache_creation_input_tokens: u
-                            .get("prompt_tokens_details")
-                            .and_then(|d| d.get("cache_creation_tokens"))
-                            .and_then(Value::as_u64)
-                            .map(|n| n as u32),
-                        cache_read_input_tokens: u
-                            .get("prompt_tokens_details")
-                            .and_then(|d| d.get("cached_tokens"))
-                            .and_then(Value::as_u64)
-                            .map(|n| n as u32),
-                        reasoning_output_tokens: None,
+                            .or_else(|| u.get("prompt_cache_hit_tokens").and_then(Value::as_u64));
+                        let cached_count = cached.unwrap_or(0);
+                        let input = u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0);
+                        let uncached_input = input.saturating_sub(cached_count);
+                        Usage {
+                            input_tokens: uncached_input as u32,
+                            output_tokens: u
+                                .get("completion_tokens")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0) as u32,
+                            cache_creation_input_tokens: u
+                                .get("prompt_tokens_details")
+                                .and_then(|d| d.get("cache_creation_tokens"))
+                                .and_then(Value::as_u64)
+                                .map(|n| n as u32),
+                            cache_read_input_tokens: cached.map(|v| v as u32),
+                            reasoning_output_tokens: None,
+                        }
                     });
                     if !state.emitted_message_stop {
                         state.emitted_message_stop = true;
@@ -685,23 +689,28 @@ impl OpencodeGoProvider {
             && v.get("usage").is_some()
             && state.seen_message_start
         {
-            let usage = v.get("usage").map(|u| Usage {
-                input_tokens: u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0) as u32,
-                output_tokens: u
-                    .get("completion_tokens")
+            let usage = v.get("usage").map(|u| {
+                let cached = u
+                    .pointer("/prompt_tokens_details/cached_tokens")
                     .and_then(Value::as_u64)
-                    .unwrap_or(0) as u32,
-                cache_creation_input_tokens: u
-                    .get("prompt_tokens_details")
-                    .and_then(|d| d.get("cache_creation_tokens"))
-                    .and_then(Value::as_u64)
-                    .map(|n| n as u32),
-                cache_read_input_tokens: u
-                    .get("prompt_tokens_details")
-                    .and_then(|d| d.get("cached_tokens"))
-                    .and_then(Value::as_u64)
-                    .map(|n| n as u32),
-                reasoning_output_tokens: None,
+                    .or_else(|| u.get("prompt_cache_hit_tokens").and_then(Value::as_u64));
+                let cached_count = cached.unwrap_or(0);
+                let input = u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0);
+                let uncached_input = input.saturating_sub(cached_count);
+                Usage {
+                    input_tokens: uncached_input as u32,
+                    output_tokens: u
+                        .get("completion_tokens")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0) as u32,
+                    cache_creation_input_tokens: u
+                        .get("prompt_tokens_details")
+                        .and_then(|d| d.get("cache_creation_tokens"))
+                        .and_then(Value::as_u64)
+                        .map(|n| n as u32),
+                    cache_read_input_tokens: cached.map(|v| v as u32),
+                    reasoning_output_tokens: None,
+                }
             });
             if !state.emitted_message_stop {
                 state.emitted_message_stop = true;
